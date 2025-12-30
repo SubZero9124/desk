@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ColorRant: Ultimate Edition</title>
+    <style>
+        :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #ff9f43; --blend: #4cd137; --grad: #9b59b6; --mixer: #e1b12c; }
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; color: var(--text); user-select: none; }
+        
+        #viewport { position: relative; width: 100vw; height: 100vh; cursor: none; }
+        .layer-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #overlay-canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 50; width: 100%; height: 100%; }
+
+        /* UI Panels */
+        .panel {
+            position: absolute; background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(5px); padding: 12px; border-radius: 8px;
+            border: 1px solid #333; display: flex; flex-direction: column; gap: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5); pointer-events: auto;
+            cursor: move; 
+        }
+
+        .top-bar { top: 15px; left: 15px; right: 15px; flex-direction: row; justify-content: space-between; align-items: center; z-index: 60; width: auto;}
+        .tools-panel { top: 75px; left: 15px; width: 220px; z-index: 60;}
+        .layers-panel { top: 75px; right: 15px; width: 170px; z-index: 60;}
+
+        /* Controls */
+        .row { display: flex; justify-content: space-between; font-size: 11px; color: #888; font-weight: 700; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+        input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--accent); margin: 6px 0; height: 4px; border-radius: 2px; }
+        
+        /* RGB Sliders */
+        .rgb-box { background: #000; padding: 8px; border-radius: 6px; display: flex; flex-direction: column; gap: 4px; border: 1px solid #333; }
+        .rgb-preview { width: 100%; height: 25px; border-radius: 3px; border: 1px solid #555; margin-bottom: 5px; }
+        .rgb-row { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: bold; }
+        
+        #sl-r { accent-color: #ff4757; }
+        #sl-g { accent-color: #2ecc71; }
+        #sl-b { accent-color: #3498db; }
+
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+        .btn { 
+            background: #2c2c2c; border: 1px solid #3a3a3a; color: #aaa; padding: 8px; 
+            font-size: 10px; cursor: pointer; text-align: center; border-radius: 4px; transition: 0.2s;
+            cursor: pointer; 
+        }
+        .btn:hover { background: #3a3a3a; color: #fff; }
+        .btn.active { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 800; }
+        
+        /* Tool Switcher */
+        .tool-group { display: flex; gap: 2px; background: #000; padding: 3px; border-radius: 6px; }
+        .t-btn { flex: 1; padding: 6px 1px; text-align: center; font-size: 10px; cursor: pointer; color: #777; font-weight: bold; border-radius: 4px; }
+        .t-btn.active { background: #333; color: #fff; }
+        .t-btn.blend-active { background: var(--blend); color: #000; }
+        .t-btn.grad-active { background: var(--grad); color: #fff; }
+        .t-btn.mixer-active { background: var(--mixer); color: #000; }
+
+        /* Layers */
+        .layer-list { height: 140px; overflow-y: auto; background: #000; border: 1px solid #333; padding: 4px; display: flex; flex-direction: column-reverse; gap: 2px; border-radius: 4px;}
+        .l-item { padding: 8px; background: #222; font-size: 11px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 2px;}
+        .l-item:hover { background: #2a2a2a; }
+        .l-item.active { background: #333; border-left: 3px solid var(--accent); color: #fff; }
+        .l-vis { width: 8px; height: 8px; border-radius: 50%; background: #444; }
+        .l-vis.on { background: var(--accent); }
+        
+        .layer-controls { border-top: 1px solid #333; padding-top: 5px; margin-top: 5px; }
+        .lc-row { display: flex; justify-content: space-between; align-items: center; font-size: 10px; margin-bottom: 4px; color: #aaa; }
+        select { background: #111; border: 1px solid #333; color: #ccc; font-size: 10px; width: 60px; }
+        .chk-label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+        /* Gradient Color Row */
+        .grad-row { display: flex; gap: 5px; }
+        .grad-input { flex: 1; height: 25px; border:none; background:none; cursor: pointer; }
+
+        #cursor { 
+            position: absolute; pointer-events: none; 
+            border: 1px solid rgba(255,255,255,0.9); 
+            transform: translate(-50%, -50%); z-index: 100; mix-blend-mode: exclusion; 
+        }
+    </style>
+</head>
+<body>
+
+<div id="viewport">
+    <div id="layer-container"></div>
+    <canvas id="overlay-canvas"></canvas>
+
+    <div class="panel top-bar">
+        <div style="font-weight:900; color:var(--accent); letter-spacing:1px; font-size:14px;">ColorRant</div>
+        <div class="tool-group">
+            <div id="t-paint" class="t-btn active" onclick="setTool('brush')">PAINT</div>
+            <div id="t-mixer" class="t-btn" onclick="setTool('mixer')">MIXER</div>
+            <div id="t-blend" class="t-btn" onclick="setTool('blend')">BLEND</div>
+            <div id="t-grad" class="t-btn" onclick="setTool('gradient')">GRAD</div>
+            <div id="t-lasso" class="t-btn" onclick="setTool('lasso')">LASSO</div>
+            <div id="t-erase" class="t-btn" onclick="setTool('eraser')">ERASE</div>
+        </div>
+    </div>
+
+    <div class="panel tools-panel">
+        <div class="rgb-box">
+            <div id="rgbPreview" class="rgb-preview" style="background: #ff9f43;"></div>
+            <div class="rgb-row"><span class="rgb-label" style="color:#ff4757">R</span><input type="range" id="sl-r" min="0" max="255" value="255"></div>
+            <div class="rgb-row"><span class="rgb-label" style="color:#2ecc71">G</span><input type="range" id="sl-g" min="0" max="255" value="159"></div>
+            <div class="rgb-row"><span class="rgb-label" style="color:#3498db">B</span><input type="range" id="sl-b" min="0" max="255" value="67"></div>
+        </div>
+        
+        <div id="brush-controls">
+            <div class="row">Brush Engine</div>
+            <div class="btn-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="btn" onclick="setBrush('block')">BLK</div>
+                <div class="btn" onclick="setBrush('round')">RND</div>
+                <div class="btn active" onclick="setBrush('rake')">RAKE</div>
+                <div class="btn" onclick="setBrush('air_soft')">SOFT</div>
+                <div class="btn" onclick="setBrush('air_grain')">GRAIN</div>
+            </div>
+            <div style="margin-top:5px;">
+                <div class="row"><span>Size</span> <span id="val-size">60</span></div>
+                <input type="range" id="sl-size" min="5" max="300" value="60">
+            </div>
+            <div style="background:rgba(76, 209, 55, 0.1); padding:6px; border-radius:4px; border:1px solid rgba(76, 209, 55, 0.3);">
+                <div class="row" style="color:var(--blend);"><span>Blend Strength</span> <span id="val-mix">20</span></div>
+                <input type="range" id="sl-mix" min="1" max="100" value="20">
+            </div>
+            <div>
+                <div class="row"><span>Color Jitter</span> <span id="val-jitter">0</span></div>
+                <input type="range" id="sl-jitter" min="0" max="100" value="0">
+            </div>
+            <div id="mixer-hint" style="display:none; font-size:10px; color:#e1b12c; margin-top:5px; border:1px solid #e1b12c; padding:4px;">
+                <b>Mixer Mode:</b> Hold <b>ALT + CLICK</b> on canvas to sample texture area.
+            </div>
+        </div>
+
+        <div id="grad-controls" style="display:none; background:rgba(155, 89, 182, 0.1); padding:6px; border-radius:4px; border:1px solid rgba(155, 89, 182, 0.3);">
+            <div class="row" style="color:var(--grad);">Gradient Colors</div>
+            <div class="grad-row"><input type="color" id="gradStart" class="grad-input" value="#ff9f43"><input type="color" id="gradEnd" class="grad-input" value="#2c3e50"></div>
+            <div class="row" style="margin-top:8px; color:#aaa;">Opacity (0-100%)</div>
+            <div class="grad-row"><input type="range" id="gradStartAlpha" min="0" max="100" value="100"><input type="range" id="gradEndAlpha" min="0" max="100" value="100"></div>
+            <div style="font-size:10px; color:#888; margin-top:5px;">Drag to apply. Selections limit area.</div>
+        </div>
+
+        <div id="lasso-controls" style="display:none; background:rgba(0, 168, 255, 0.1); padding:6px; border-radius:4px; border:1px solid rgba(0, 168, 255, 0.3);">
+            <div class="row" style="color:#00a8ff;">Lasso Mode</div>
+            <div class="btn-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="btn active" onclick="setLassoMode('free')">FREE</div>
+                <div class="btn" onclick="setLassoMode('poly')">POLY</div>
+                <div class="btn" onclick="setLassoMode('rect')">RECT</div>
+                <div class="btn" onclick="setLassoMode('circ')">CIRC</div>
+            </div>
+            <div style="font-size:10px; color:#888; margin-top:5px;">Poly: Click points, Dbl-Click to end.</div>
+        </div>
+        
+        <div style="margin-top: 15px; border-top: 1px solid #333; padding-top: 10px;">
+            <div class="btn" style="background: #2980b9; color: white; border:1px solid #3498db; font-weight: bold;" onclick="saveImage()">SAVE IMAGE PNG</div>
+        </div>
+    </div>
+
+    <div class="panel layers-panel">
+        <div class="row">Layers</div>
+        <div class="layer-list" id="layerList"></div>
+        <div class="layer-controls" id="layerControls">
+            <div class="lc-row">
+                <span>Mode</span>
+                <select id="blendModeSel" onchange="setLayerProp('blendMode', this.value)">
+                    <option value="normal">Normal</option>
+                    <option value="multiply">Multiply</option>
+                    <option value="color-dodge">Dodge</option>
+                    <option value="overlay">Overlay</option>
+                </select>
+            </div>
+            <div class="lc-row"><label class="chk-label"><input type="checkbox" id="alphaLockChk" onchange="setLayerProp('alphaLock', this.checked)"> Alpha Lock</label></div>
+            <div class="lc-row"><label class="chk-label"><input type="checkbox" id="clipMaskChk" onchange="setLayerProp('clipped', this.checked)"> Clip Mask</label></div>
+        </div>
+        <div class="btn-grid" style="margin-top: 10px;">
+            <div class="btn" onclick="addLayer()">NEW</div>
+            <div class="btn" style="color:#ff7675" onclick="deleteLayer()">DEL</div>
+            <div class="btn" onclick="clearLayer()">CLR</div>
+        </div>
+    </div>
+</div>
+
+<div id="cursor"></div>
+
+<script>
+    function saveImage() {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = CONFIG.w;
+        tempCanvas.height = CONFIG.h;
+        const tCtx = tempCanvas.getContext('2d');
+        tCtx.fillStyle = '#121212';
+        tCtx.fillRect(0, 0, CONFIG.w, CONFIG.h);
+        layers.forEach(l => {
+            if(l.visible) {
+                tCtx.globalCompositeOperation = l.blendMode === 'normal' ? 'source-over' : l.blendMode;
+                tCtx.drawImage(l.canvas, 0, 0);
+            }
+        });
+        const link = document.createElement('a');
+        link.download = 'ColorRant-Art.png';
+        link.href = tempCanvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    const CONFIG = { w: window.innerWidth, h: window.innerHeight };
+    const state = {
+        tool: 'brush', lastTool: null, brush: 'rake', color: '#ff9f43', size: 60, mix: 0.20, jitter: 0,
+        isDrawing: false, canBlend: false, isSampling: false, mixerBuffer: null,
+        lassoPoly: [], lassoMode: 'free', lassoStart: null, selectionPath: null, dashOffset: 0,
+        gradStartColor: '#ff9f43', gradEndColor: '#2c3e50', gradStartOpacity: 1.0, gradEndOpacity: 1.0,
+        gradDragStart: null, gradDragCurrent: null
+    };
+
+    let bristles = [], brushLoad = {r:0, g:0, b:0}; const BRISTLE_COUNT = 15;
+    let layers = [], activeIdx = 0, layerCounter = 0;
+    const MAX_HISTORY = 10; let historyStack = [], redoStack = []; // Added Redo
+    let dragItem = null, dragOffset = {x:0, y:0};
+
+    const overlayCtx = document.getElementById('overlay-canvas').getContext('2d');
+    const cursor = document.getElementById('cursor');
+    const viewport = document.getElementById('viewport');
+
+    // SCRATCH CANVAS FOR CLIPPING
+    const scratchCanvas = document.createElement('canvas');
+    const scratchCtx = scratchCanvas.getContext('2d');
+
+    function getPos(e) { const r = viewport.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        addLayer();
+        requestAnimationFrame(animLoop);
+        updateUI();
+    }
+
+    function resize() {
+        CONFIG.w = window.innerWidth; CONFIG.h = window.innerHeight;
+        document.getElementById('overlay-canvas').width = CONFIG.w;
+        document.getElementById('overlay-canvas').height = CONFIG.h;
+        layers.forEach(l => {
+            const t = document.createElement('canvas'); t.width = l.canvas.width; t.height = l.canvas.height;
+            t.getContext('2d').drawImage(l.canvas, 0, 0);
+            l.canvas.width = CONFIG.w; l.canvas.height = CONFIG.h;
+            l.ctx.drawImage(t, 0, 0);
+        });
+    }
+
+    // ... (Color, Layers, History Logic is identical to previous working version, just ensuring Undo/Redo)
+    function updateColorFromSliders() {
+        const r = parseInt(document.getElementById('sl-r').value), g = parseInt(document.getElementById('sl-g').value), b = parseInt(document.getElementById('sl-b').value);
+        state.color = "#" + [r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+        document.getElementById('rgbPreview').style.background = state.color;
+    }
+    function updateSlidersFromColor(hex) {
+        const rgb = hexToRgb(hex); document.getElementById('sl-r').value = rgb.r; document.getElementById('sl-g').value = rgb.g; document.getElementById('sl-b').value = rgb.b;
+        document.getElementById('rgbPreview').style.background = hex;
+    }
+    function addLayer() {
+        const c = document.createElement('canvas'); c.width = CONFIG.w; c.height = CONFIG.h; c.className = 'layer-canvas';
+        document.getElementById('layer-container').appendChild(c);
+        layers.push({ id: layerCounter++, canvas: c, ctx: c.getContext('2d', { willReadFrequently: true }), visible: true, name: `Layer ${layerCounter}`, blendMode: 'normal', alphaLock: false, clipped: false });
+        setActiveLayer(layers.length - 1);
+    }
+    function setActiveLayer(idx) { if(idx < 0 || idx >= layers.length) return; activeIdx = idx; renderLayerUI(); updateLayerControls(); }
+    function updateLayerControls() {
+        const l = layers[activeIdx];
+        document.getElementById('blendModeSel').value = l.blendMode;
+        document.getElementById('alphaLockChk').checked = l.alphaLock;
+        document.getElementById('clipMaskChk').checked = l.clipped;
+    }
+    function setLayerProp(prop, val) { if(layers[activeIdx]) { layers[activeIdx][prop] = val; if(prop==='blendMode') layers[activeIdx].canvas.style.mixBlendMode = val; } }
+    function deleteLayer() { if(layers.length <= 1) return clearLayer(); layers[activeIdx].canvas.remove(); layers.splice(activeIdx, 1); setActiveLayer(Math.max(0, activeIdx - 1)); }
+    function clearLayer() { saveHistory(); layers[activeIdx].ctx.clearRect(0,0, CONFIG.w, CONFIG.h); }
+    
+    function renderLayerUI() {
+        const list = document.getElementById('layerList'); list.innerHTML = '';
+        layers.forEach((l, i) => {
+            const el = document.createElement('div'); el.className = `l-item ${i === activeIdx ? 'active' : ''}`;
+            el.innerHTML = `<span class="l-vis ${l.visible?'on':''}"></span> ${l.clipped ? "↳ " : ""}${l.name}`;
+            el.onclick = () => setActiveLayer(i); list.appendChild(el);
+        });
+    }
+
+    function saveHistory() {
+        if(layers.length === 0) return;
+        redoStack = []; // Clear redo
+        if (historyStack.length >= MAX_HISTORY) historyStack.shift();
+        historyStack.push({ layerId: layers[activeIdx].id, data: layers[activeIdx].ctx.getImageData(0, 0, CONFIG.w, CONFIG.h) });
+    }
+    function undo() {
+        if (historyStack.length === 0) return;
+        const cur = layers[activeIdx]; redoStack.push({ layerId: cur.id, data: cur.ctx.getImageData(0, 0, CONFIG.w, CONFIG.h) });
+        const last = historyStack.pop(); const l = layers.find(l => l.id === last.layerId); if(l) l.ctx.putImageData(last.data, 0, 0);
+    }
+    function redo() { // Redo Implementation
+        if (redoStack.length === 0) return;
+        const cur = layers[activeIdx]; historyStack.push({ layerId: cur.id, data: cur.ctx.getImageData(0, 0, CONFIG.w, CONFIG.h) });
+        const next = redoStack.pop(); const l = layers.find(l => l.id === next.layerId); if(l) l.ctx.putImageData(next.data, 0, 0);
+    }
+
+    /* --- PHYSICS & COLOR --- */
+    function hexToRgb(hex) { const v = parseInt(hex.slice(1), 16); return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 }; }
+    
+    // HSL Jitter
+    function getJitteredColor(base, amount) {
+        if (amount <= 0) return base;
+        let r = base.r/255, g = base.g/255, b = base.b/255;
+        let max = Math.max(r, g, b), min = Math.min(r, g, b), h, s, l = (max + min) / 2;
+        if(max !== min) {
+            let d = max - min; s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) { case r: h = (g - b) / d + (g < b ? 6 : 0); break; case g: h = (b - r) / d + 2; break; case b: h = (r - g) / d + 4; break; }
+            h /= 6;
+        }
+        h = (h + (Math.random()-0.5)*(amount/200) + 1) % 1;
+        s = Math.max(0, Math.min(1, s + (Math.random()-0.2)*(amount/200)));
+        l = Math.max(0, Math.min(1, l + (Math.random()-0.5)*(amount/150)));
+        let r1, g1, b1;
+        if (s === 0) r1 = g1 = b1 = l; else {
+            const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1/6) return p + (q - p) * 6 * t; if (t < 1/2) return q; if (t < 2/3) return p + (q - p) * (2/3 - t) * 6; return p; }
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s; const p = 2 * l - q;
+            r1 = hue2rgb(p, q, h + 1/3); g1 = hue2rgb(p, q, h); b1 = hue2rgb(p, q, h - 1/3);
+        }
+        return { r: r1 * 255, g: g1 * 255, b: b1 * 255 };
+    }
+
+    function initPhysics(startColor) {
+        bristles = [];
+        for(let i=0; i<BRISTLE_COUNT; i++) {
+            const c = (state.tool === 'brush') ? getJitteredColor(startColor, state.jitter) : startColor;
+            bristles.push({ r: c.r, g: c.g, b: c.b, thickness: 0.5 + Math.random(), offset: (Math.random() - 0.5) * (state.size / BRISTLE_COUNT) * 0.8 });
+        }
+        const c = (state.tool === 'brush') ? getJitteredColor(startColor, state.jitter) : startColor;
+        brushLoad = { r: c.r, g: c.g, b: c.b };
+    }
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function pickColorAt(ctx, x, y) { const p = ctx.getImageData(x|0, y|0, 1, 1).data; return p[3] < 10 ? null : { r: p[0], g: p[1], b: p[2] }; }
+    function sampleMixer(x, y) { const s = state.size; const data = layers[activeIdx].ctx.getImageData(x - s/2, y - s/2, s, s); const c = document.createElement('canvas'); c.width = s; c.height = s; c.getContext('2d').putImageData(data, 0, 0); state.mixerBuffer = c; }
+
+    /* --- DRAW ENGINE (FIXED CLIPPING) --- */
+    function draw(p1, p2) {
+        const ctx = layers[activeIdx].ctx;
+        if (state.tool === 'blend' && !state.canBlend) return;
+
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        
+        let stepSize = state.size / 8;
+        if(state.brush === 'rake') stepSize = state.size / 15;
+        if(state.brush === 'air_soft') stepSize = state.size / 10;
+
+        const steps = Math.ceil(dist / Math.max(1, stepSize));
+
+        ctx.save();
+        if(state.selectionPath) ctx.clip(state.selectionPath);
+
+        if (state.tool === 'eraser') ctx.globalCompositeOperation = 'destination-out';
+        else if (layers[activeIdx].alphaLock) ctx.globalCompositeOperation = 'source-atop';
+        else ctx.globalCompositeOperation = 'source-over';
+
+        // Check Clipping Status
+        const isClipped = layers[activeIdx].clipped && activeIdx > 0 && state.tool !== 'eraser';
+
+        for(let i=0; i<=steps; i++) {
+            const t = steps===0 ? 0 : i/steps;
+            const x = lerp(p1.x, p2.x, t);
+            const y = lerp(p1.y, p2.y, t);
+
+            // 1. MIXER / SOLID BRUSHES (Clipping Mode: Scratch Canvas)
+            // Use this if clipping is on, AND it's a solid brush or mixer
+            if (isClipped && (state.brush === 'round' || state.brush === 'block' || state.brush === 'air_soft' || state.tool === 'mixer')) {
+                scratchCanvas.width = state.size * 2; 
+                scratchCanvas.height = state.size * 2;
+                scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+                
+                scratchCtx.save();
+                scratchCtx.translate(state.size, state.size);
+                if(state.brush !== 'round' && state.brush !== 'air_soft') scratchCtx.rotate(angle);
+
+                // Draw Brush Tip to Scratch
+                if (state.tool === 'mixer' && state.mixerBuffer) {
+                    scratchCtx.beginPath();
+                    if(state.brush==='block') scratchCtx.rect(-state.size/2, -state.size/2, state.size, state.size);
+                    else scratchCtx.arc(0, 0, state.size/2, 0, Math.PI*2);
+                    scratchCtx.clip();
+                    scratchCtx.drawImage(state.mixerBuffer, -state.size/2, -state.size/2, state.size, state.size);
+                } else {
+                    prepBrushColor(ctx, x, y);
+                    const c = brushLoad;
+                    scratchCtx.fillStyle = `rgb(${c.r|0},${c.g|0},${c.b|0})`;
+                    if (state.tool === 'blend') scratchCtx.globalAlpha = 0.4;
+
+                    if(state.brush === 'block') scratchCtx.fillRect(-state.size/2, -state.size/2, state.size, state.size);
+                    else if(state.brush === 'round') { scratchCtx.beginPath(); scratchCtx.arc(0,0, state.size/2, 0, Math.PI*2); scratchCtx.fill(); }
+                    else if(state.brush === 'air_soft') {
+                        const g = scratchCtx.createRadialGradient(0,0,0, 0,0,state.size/2);
+                        const alpha = state.tool === 'blend' ? 0.2 : 0.1; 
+                        g.addColorStop(0, `rgba(${c.r|0},${c.g|0},${c.b|0},${alpha})`);
+                        g.addColorStop(1, `rgba(${c.r|0},${c.g|0},${c.b|0},0)`);
+                        scratchCtx.fillStyle = g;
+                        scratchCtx.fillRect(-state.size/2, -state.size/2, state.size, state.size);
+                    }
+                }
+                scratchCtx.restore();
+
+                // Mask with Layer Below
+                scratchCtx.globalCompositeOperation = 'destination-in';
+                const sx = x - state.size; 
+                const sy = y - state.size;
+                scratchCtx.drawImage(layers[activeIdx-1].canvas, sx, sy, state.size*2, state.size*2, 0, 0, state.size*2, state.size*2);
+
+                // Stamp to Main Layer
+                ctx.drawImage(scratchCanvas, x - state.size, y - state.size);
+                continue;
+            }
+
+            // 2. MIXER (No Clipping)
+            if (state.tool === 'mixer' && state.mixerBuffer) {
+                ctx.save(); ctx.translate(x, y);
+                if (state.brush === 'rake') ctx.rotate(angle);
+                ctx.beginPath();
+                if (state.brush === 'block') ctx.rect(-state.size/2, -state.size/2, state.size, state.size);
+                else if (state.brush === 'rake') {
+                    const bristleH = state.size / BRISTLE_COUNT;
+                    for(let b=0; b<BRISTLE_COUNT; b++) ctx.rect(-state.size/2, -state.size/2 + (b * bristleH), state.size, bristleH-1);
+                } else ctx.arc(0, 0, state.size/2, 0, Math.PI*2);
+                ctx.clip();
+                ctx.drawImage(state.mixerBuffer, -state.size/2, -state.size/2, state.size, state.size);
+                ctx.restore();
+                continue;
+            }
+
+            // 3. RAKE & GRAIN (Pixel Check Clipping)
+            const isVisible = (tx, ty) => {
+                if (!isClipped) return true;
+                const pixel = layers[activeIdx-1].ctx.getImageData(tx|0, ty|0, 1, 1).data;
+                return pixel[3] > 10;
+            };
+
+            if(state.brush === 'rake') {
+                ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+                const bristleH = state.size / BRISTLE_COUNT;
+                const startY = -state.size/2;
+                for(let b=0; b<BRISTLE_COUNT; b++) {
+                    const bristle = bristles[b];
+                    const localY = startY + (b * bristleH) + bristle.offset;
+                    const h = bristleH * bristle.thickness;
+                    const gx = x - Math.sin(angle) * localY, gy = y + Math.cos(angle) * localY;
+                    
+                    if (!isVisible(gx, gy)) continue;
+
+                    if(state.tool === 'blend') {
+                        const bg = pickColorAt(ctx, gx, gy); 
+                        if(bg) { 
+                            bristles[b].r = lerp(bristles[b].r, bg.r, state.mix); 
+                            bristles[b].g = lerp(bristles[b].g, bg.g, state.mix); 
+                            bristles[b].b = lerp(bristles[b].b, bg.b, state.mix); 
+                        }
+                    }
+                    ctx.fillStyle = `rgb(${bristles[b].r|0}, ${bristles[b].g|0}, ${bristles[b].b|0})`;
+                    ctx.fillRect(-state.size/10, localY, state.size/5, h); 
+                }
+                ctx.restore();
+            } 
+            else if (state.brush === 'air_grain') {
+                prepBrushColor(ctx, x, y);
+                const c = brushLoad;
+                ctx.fillStyle = `rgb(${c.r|0},${c.g|0},${c.b|0})`;
+                for(let k=0; k<80; k++) {
+                    const rx = (Math.random()+Math.random()+Math.random()-1.5)/1.5 * (state.size/2);
+                    const ry = (Math.random()+Math.random()+Math.random()-1.5)/1.5 * (state.size/2);
+                    if (isVisible(x + rx, y + ry)) {
+                       if(rx*rx+ry*ry < (state.size/2)**2) ctx.fillRect(x+rx, y+ry, 1.5, 1.5);
+                    }
+                }
+            } 
+            else {
+                // 4. STANDARD SOLID (No Clipping)
+                prepBrushColor(ctx, x, y);
+                const c = brushLoad;
+                if(state.tool === 'blend' && (state.brush === 'block' || state.brush === 'round')) ctx.globalAlpha = 0.4;
+                else ctx.globalAlpha = 1.0;
+
+                if(state.brush === 'block') {
+                    ctx.fillStyle = `rgb(${c.r|0},${c.g|0},${c.b|0})`;
+                    ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
+                    ctx.fillRect(-state.size/2, -state.size/2, state.size, state.size);
+                    ctx.restore();
+                } else if(state.brush === 'round') {
+                    ctx.fillStyle = `rgb(${c.r|0},${c.g|0},${c.b|0})`;
+                    ctx.beginPath(); ctx.arc(x,y, state.size/2, 0, Math.PI*2); ctx.fill();
+                } else if(state.brush === 'air_soft') {
+                    const g = ctx.createRadialGradient(x,y,0, x,y,state.size/2);
+                    const alpha = state.tool === 'blend' ? 0.2 : 0.1; 
+                    g.addColorStop(0, `rgba(${c.r|0},${c.g|0},${c.b|0},${alpha})`);
+                    g.addColorStop(1, `rgba(${c.r|0},${c.g|0},${c.b|0},0)`);
+                    ctx.fillStyle = g;
+                    ctx.fillRect(x-state.size/2, y-state.size/2, state.size, state.size);
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    function prepBrushColor(ctx, x, y) {
+        if(state.tool === 'blend') {
+            const bg = pickColorAt(ctx, x, y);
+            if(bg) {
+                brushLoad.r = lerp(brushLoad.r, bg.r, state.mix);
+                brushLoad.g = lerp(brushLoad.g, bg.g, state.mix);
+                brushLoad.b = lerp(brushLoad.b, bg.b, state.mix);
+            }
+        } else if(state.jitter > 0) {
+            brushLoad = getJitteredColor(hexToRgb(state.color), state.jitter);
+        } else {
+            const rgb = hexToRgb(state.color);
+            brushLoad = {r:rgb.r, g:rgb.g, b:rgb.b};
+        }
+    }
+
+    function applyGradient() {
+        if(!state.gradDragStart || !state.gradDragCurrent) return;
+        const ctx = layers[activeIdx].ctx;
+        ctx.save();
+        if(state.selectionPath) ctx.clip(state.selectionPath);
+        
+        // Gradient Clipping (Scratch Canvas Method)
+        if (layers[activeIdx].clipped && activeIdx > 0) {
+            const temp = document.createElement('canvas'); temp.width = CONFIG.w; temp.height = CONFIG.h;
+            const tCtx = temp.getContext('2d');
+            
+            const p1 = state.gradDragStart, p2 = state.gradDragCurrent;
+            const grad = tCtx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+            grad.addColorStop(0, getGradientColor(state.gradStartColor, state.gradStartOpacity));
+            grad.addColorStop(1, getGradientColor(state.gradEndColor, state.gradEndOpacity));
+            tCtx.fillStyle = grad;
+            tCtx.fillRect(0, 0, CONFIG.w, CONFIG.h);
+            
+            tCtx.globalCompositeOperation = 'destination-in';
+            tCtx.drawImage(layers[activeIdx-1].canvas, 0, 0);
+            
+            ctx.drawImage(temp, 0, 0);
+        } else {
+            if (layers[activeIdx].alphaLock) ctx.globalCompositeOperation = 'source-atop';
+            const p1 = state.gradDragStart, p2 = state.gradDragCurrent;
+            const grad = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+            grad.addColorStop(0, getGradientColor(state.gradStartColor, state.gradStartOpacity));
+            grad.addColorStop(1, getGradientColor(state.gradEndColor, state.gradEndOpacity));
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, CONFIG.w, CONFIG.h);
+        }
+        ctx.restore();
+    }
+
+    function finishLasso() {
+        if(state.lassoPoly.length < 2 && state.lassoMode !== 'poly') return; 
+        const p = new Path2D();
+        if (state.lassoMode === 'rect') {
+             const start = state.lassoPoly[0], end = state.lassoPoly[1];
+             if(start && end) p.rect(start.x, start.y, end.x - start.x, end.y - start.y);
+        } else if (state.lassoMode === 'circ') {
+             const start = state.lassoPoly[0], end = state.lassoPoly[1];
+             if(start && end) { p.arc(start.x, start.y, Math.hypot(end.x - start.x, end.y - start.y), 0, Math.PI*2); }
+        } else {
+             if(state.lassoPoly.length < 3 && state.lassoMode === 'poly') return;
+             if(state.lassoPoly.length > 0) {
+                 p.moveTo(state.lassoPoly[0].x, state.lassoPoly[0].y);
+                 state.lassoPoly.forEach(pt => p.lineTo(pt.x, pt.y));
+                 p.closePath();
+             }
+        }
+        if (state.selectionPath) state.selectionPath.addPath(p); else state.selectionPath = p;
+        state.lassoPoly = [];
+    }
+
+    // --- EVENTS & UI (Mouse handling) ---
+    window.addEventListener('mousedown', e => {
+        if (e.target.closest('button, input, select, label, .btn, .t-btn, .l-item')) return;
+        const panel = e.target.closest('.panel');
+        if (panel) {
+            dragItem = panel; const r = panel.getBoundingClientRect();
+            panel.style.right = 'auto'; panel.style.left = r.left+'px'; panel.style.top = r.top+'px';
+            dragOffset = {x: e.clientX - r.left, y: e.clientY - r.top}; return;
+        }
+        const p = getPos(e); lastPos = p;
+        if(state.tool === 'mixer' && e.altKey) { sampleMixer(p.x, p.y); return; }
+        state.isDrawing = true;
+        state.canBlend = true;
+        if (state.tool === 'blend') { if (!pickColorAt(layers[activeIdx].ctx, p.x, p.y)) state.canBlend = false; }
+
+        if(state.tool === 'lasso') {
+            if(state.lassoMode==='poly' || state.lassoMode==='free') state.lassoPoly.push(p);
+            else { state.lassoStart = p; state.lassoPoly = [p]; }
+        } else if(state.tool === 'gradient') { state.gradDragStart = p; state.gradDragCurrent = p; }
+        else if(state.tool === 'picker') { pickColorUI(p); }
+        else {
+            saveHistory();
+            initPhysics(hexToRgb(state.color));
+            draw(p, p);
+        }
+    });
+
+    window.addEventListener('mousemove', e => {
+        if(dragItem) { dragItem.style.left = (e.clientX - dragOffset.x)+'px'; dragItem.style.top = (e.clientY - dragOffset.y)+'px'; return; }
+        const p = getPos(e); updateCursorUI(p, e.altKey);
+        if(!state.isDrawing && state.lassoMode !== 'poly') return;
+        
+        if(state.tool === 'lasso') {
+            if(state.lassoMode==='free') state.lassoPoly.push(p);
+            else if(state.lassoMode!=='poly') state.lassoPoly = [state.lassoStart, p];
+        } else if(state.tool === 'gradient') state.gradDragCurrent = p;
+        else if(state.tool === 'picker') pickColorUI(p);
+        else if(state.isDrawing) { draw(lastPos, p); lastPos = p; }
+    });
+
+    window.addEventListener('mouseup', () => {
+        if(dragItem) { dragItem = null; return; }
+        if(state.tool === 'lasso' && state.lassoMode !== 'poly') { finishLasso(); state.isDrawing = false; }
+        else if(state.tool === 'gradient' && state.isDrawing) { saveHistory(); applyGradient(); state.isDrawing = false; }
+        else if(state.tool !== 'lasso') state.isDrawing = false;
+        state.gradDragStart = null;
+    });
+
+    window.addEventListener('dblclick', () => { if(state.tool === 'lasso' && state.lassoMode === 'poly') finishLasso(); });
+
+    function getGradientColor(hex, alpha) { const rgb = hexToRgb(hex); return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`; }
+
+    function animLoop() {
+        overlayCtx.clearRect(0, 0, CONFIG.w, CONFIG.h);
+        state.dashOffset++;
+        if(state.selectionPath) {
+            overlayCtx.save(); overlayCtx.lineWidth = 1;
+            overlayCtx.strokeStyle = 'white'; overlayCtx.setLineDash([5, 5]); overlayCtx.lineDashOffset = -state.dashOffset/2; overlayCtx.stroke(state.selectionPath);
+            overlayCtx.strokeStyle = 'black'; overlayCtx.lineDashOffset = -state.dashOffset/2; overlayCtx.globalCompositeOperation = 'destination-over'; overlayCtx.stroke(state.selectionPath);
+            overlayCtx.restore();
+        }
+        if(state.lassoPoly.length > 0) {
+            overlayCtx.save(); overlayCtx.beginPath(); overlayCtx.lineWidth = 2;
+            overlayCtx.setLineDash([5, 5]); overlayCtx.lineDashOffset = -state.dashOffset; overlayCtx.strokeStyle = 'white'; overlayCtx.shadowColor = 'black'; overlayCtx.shadowBlur = 2;
+            if (state.lassoMode === 'rect' && state.lassoPoly.length > 1) {
+                 const s = state.lassoPoly[0], e = state.lassoPoly[1];
+                 overlayCtx.rect(s.x, s.y, e.x - s.x, e.y - s.y); overlayCtx.stroke();
+            } else if (state.lassoMode === 'circ' && state.lassoPoly.length > 1) {
+                 const s = state.lassoPoly[0], e = state.lassoPoly[1];
+                 overlayCtx.arc(s.x, s.y, Math.hypot(e.x - s.x, e.y - s.y), 0, Math.PI*2); overlayCtx.stroke();
+            } else {
+                 if(state.lassoPoly.length > 0) {
+                     overlayCtx.moveTo(state.lassoPoly[0].x, state.lassoPoly[0].y);
+                     state.lassoPoly.forEach(pt => overlayCtx.lineTo(pt.x, pt.y)); overlayCtx.stroke();
+                     if(state.lassoMode === 'poly' && state.lassoPoly.length > 1) {
+                         overlayCtx.beginPath();
+                         overlayCtx.moveTo(state.lassoPoly[state.lassoPoly.length-1].x, state.lassoPoly[state.lassoPoly.length-1].y);
+                         overlayCtx.lineTo(state.lassoPoly[0].x, state.lassoPoly[0].y);
+                         overlayCtx.strokeStyle = 'rgba(255,255,255,0.5)'; overlayCtx.setLineDash([5, 5]); overlayCtx.stroke();
+                     }
+                 }
+            }
+            overlayCtx.restore();
+        }
+        if(state.tool === 'gradient' && state.isDrawing && state.gradDragStart && state.gradDragCurrent) {
+            overlayCtx.beginPath(); overlayCtx.strokeStyle = 'white'; overlayCtx.lineWidth = 2;
+            overlayCtx.moveTo(state.gradDragStart.x, state.gradDragStart.y); overlayCtx.lineTo(state.gradDragCurrent.x, state.gradDragCurrent.y); overlayCtx.stroke();
+            overlayCtx.fillStyle = getGradientColor(state.gradStartColor, state.gradStartOpacity); overlayCtx.beginPath(); overlayCtx.arc(state.gradDragStart.x, state.gradDragStart.y, 4, 0, Math.PI*2); overlayCtx.fill();
+            overlayCtx.fillStyle = getGradientColor(state.gradEndColor, state.gradEndOpacity); overlayCtx.beginPath(); overlayCtx.arc(state.gradDragCurrent.x, state.gradDragCurrent.y, 4, 0, Math.PI*2); overlayCtx.fill();
+        }
+        requestAnimationFrame(animLoop);
+    }
+
+    function setTool(t) { 
+        state.tool = t; updateUI(); 
+        const mh = document.getElementById('mixer-hint'); mh.style.display = t==='mixer' ? 'block' : 'none';
+        document.getElementById('brush-controls').style.display = (t==='brush' || t==='eraser' || t==='blend' || t==='mixer') ? 'block' : 'none';
+        document.getElementById('grad-controls').style.display = t==='gradient' ? 'block' : 'none';
+        document.getElementById('lasso-controls').style.display = t==='lasso' ? 'block' : 'none';
+        state.lassoPoly = [];
+    }
+    function setLassoMode(m) { state.lassoMode = m; state.lassoPoly = []; updateUIButtons('#lasso-controls .btn'); }
+    function setBrush(b) { state.brush = b; updateUIButtons('#brush-controls .btn-grid .btn'); updateCursorUI(); }
+    function updateUIButtons(sel) { document.querySelectorAll(sel).forEach(b => b.classList.remove('active')); event.target.classList.add('active'); }
+    function updateUI() { 
+        document.querySelectorAll('.t-btn').forEach(b => b.classList.remove('active', 'blend-active', 'grad-active', 'mixer-active')); 
+        const map = {'brush':'t-paint', 'blend':'t-blend', 'gradient':'t-grad', 'lasso':'t-lasso', 'eraser':'t-erase', 'mixer':'t-mixer'};
+        const el = document.getElementById(map[state.tool]); 
+        if(el) { if(state.tool==='blend') el.classList.add('blend-active'); else if(state.tool==='gradient') el.classList.add('grad-active'); else if(state.tool==='mixer') el.classList.add('mixer-active'); else el.classList.add('active'); }
+    }
+    
+    function updateCursorUI(pos, altDown) {
+        if(pos) { cursor.style.left = pos.x+'px'; cursor.style.top = pos.y+'px'; }
+        const isMixerSample = state.tool === 'mixer' && altDown;
+        const isSpecial = state.tool === 'gradient' || state.tool === 'picker' || state.tool === 'lasso';
+        cursor.style.width = isMixerSample || isSpecial ? '20px' : state.size+'px';
+        cursor.style.height = isMixerSample || isSpecial ? '20px' : state.size+'px';
+        cursor.style.borderRadius = (state.tool === 'lasso' || (state.brush!=='round' && state.brush!=='air_soft' && !isSpecial)) ? '0' : '50%';
+        cursor.style.border = isMixerSample ? '2px dashed #e1b12c' : (state.tool === 'lasso' ? '2px solid #00a8ff' : '2px solid white');
+        cursor.style.transform = state.tool === 'lasso' ? 'translate(-50%, -50%) rotate(45deg)' : 'translate(-50%, -50%)';
+    }
+
+    document.getElementById('sl-r').oninput = updateColorFromSliders;
+    document.getElementById('sl-g').oninput = updateColorFromSliders;
+    document.getElementById('sl-b').oninput = updateColorFromSliders;
+    document.getElementById('sl-size').oninput = e => { state.size = +e.target.value; document.getElementById('val-size').innerText = state.size; updateCursorUI(); };
+    document.getElementById('sl-mix').oninput = e => { state.mix = +e.target.value / 100; document.getElementById('val-mix').innerText = e.target.value; };
+    document.getElementById('sl-jitter').oninput = e => { state.jitter = +e.target.value; document.getElementById('val-jitter').innerText = state.jitter; };
+    document.getElementById('gradStart').oninput = e => state.gradStartColor = e.target.value;
+    document.getElementById('gradEnd').oninput = e => state.gradEndColor = e.target.value;
+    document.getElementById('gradStartAlpha').oninput = e => state.gradStartOpacity = +e.target.value / 100;
+    document.getElementById('gradEndAlpha').oninput = e => state.gradEndOpacity = +e.target.value / 100;
+
+    window.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+            e.preventDefault(); if (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z')) redo(); else undo();
+        }
+        if (e.key === 'Alt') { if(state.tool === 'mixer') updateCursorUI(null, true); else if(state.tool !== 'picker') { e.preventDefault(); state.lastTool = state.tool; setTool('picker'); } }
+        if (e.ctrlKey && e.key === 'd') { e.preventDefault(); state.selectionPath = null; state.lassoPoly = []; }
+        const k = e.key.toLowerCase();
+        if(k==='b') setTool('brush'); if(k==='m') setTool('blend'); if(k==='g') setTool('gradient'); if(k==='l') setTool('lasso'); if(k==='e') setTool('eraser'); if(k==='x') setTool('picker');
+    });
+    window.addEventListener('keyup', e => { if (e.key === 'Alt') { if(state.tool === 'mixer') updateCursorUI(null, false); else if (state.tool === 'picker' && state.lastTool) { setTool(state.lastTool); state.lastTool = null; } } });
+
+    init();
+</script>
+</body>
+</html>
